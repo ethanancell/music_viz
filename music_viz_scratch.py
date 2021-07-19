@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[13]:
+# In[1]:
 
 
 import spotipy
@@ -15,14 +15,14 @@ import time
 
 # Load credentials from file on PC. If you are downloading this project from Github, then this specific file will not be there because it contains private access information.
 
-# In[14]:
+# In[2]:
 
 
 scope = ['user-library-read', 'user-read-currently-playing', 'user-read-playback-state']
 sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope))
 
 
-# In[15]:
+# In[4]:
 
 
 # Global variables of progress_ms and play_status. These are updated by thread 2 which does all
@@ -77,8 +77,6 @@ def refresh_song(playback, is_new_song):
     
     progress_ms = playback['progress_ms']
     start_system_time = time.time()
-    viz_bar_played = [False] * len(viz_bars)
-    viz_beat_played = [False] * len(viz_beats)
     
     if is_new_song:
         song_name = playback['item']['name']
@@ -86,6 +84,9 @@ def refresh_song(playback, is_new_song):
         viz_aa = sp.audio_analysis(song_uri)
         viz_bars = viz_aa['bars']
         viz_beats = viz_aa['beats']
+    
+    viz_bar_played = [False] * len(viz_bars)
+    viz_beat_played = [False] * len(viz_beats)
 
     # Refresh the song playback progress because it can get out of sync after audio analysis
     quick_refresh = sp.current_playback()
@@ -114,6 +115,8 @@ def visual_task(thread_lock):
     global viz_aa
     global viz_bars
     global viz_beats
+    global viz_bar_played
+    global viz_beat_played
     global bar_pos
     global beat_pos
     global upcoming_bar_pos
@@ -156,7 +159,6 @@ def visual_task(thread_lock):
         # print('song time:', song_time)
         
         # print(viz_beats)
-        
         if viz_beats[upcoming_beat_pos]['start'] <= song_time and not viz_beat_played[beat_pos]:
             print('BEAT', upcoming_beat_pos)
             viz_beat_played[beat_pos] = True
@@ -200,7 +202,7 @@ def server_refresh(thread_lock):
                 # Check if new song has appeared
                 if refresh['item']['uri'] != song_uri:
                     thread_lock.acquire()
-                    refresh_song(refresh, False)
+                    refresh_song(refresh, True)
                     print('Now playing \'', song_name, '\'', sep='')
                     thread_lock.release()
 
@@ -214,7 +216,7 @@ def server_refresh(thread_lock):
         time.sleep(0.50) # Don't clog CPU
 
 
-# In[16]:
+# In[5]:
 
 
 lock = threading.Lock()
