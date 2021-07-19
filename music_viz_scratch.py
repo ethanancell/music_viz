@@ -12,6 +12,8 @@ from spotipy.oauth2 import SpotifyClientCredentials
 import threading
 import time
 
+from gpiozero import LEDBoard
+
 
 # Load credentials from file on PC. If you are downloading this project from Github, then this specific file will not be there because it contains private access information.
 
@@ -55,8 +57,16 @@ upcoming_beat_pos = 0
 song_name = ''
 song_uri = ''
 
+blink_now = False
+
 # Variable that keeps track of all threads should be running
 should_play = True
+
+leds = LEDBoard(2, 3, 4)
+def blink_led(ledref):
+    ledref.value = (0.5, 0.5, 0.5)
+    time.sleep(0.15)
+    ledref.value = (0, 0, 0)
 
 # Change position in a song, start a new song, etc.
 def refresh_song(playback, is_new_song):
@@ -106,6 +116,7 @@ def refresh_song(playback, is_new_song):
             # print('Found beat_pos', beat_pos)
             break
 
+
 def visual_task(thread_lock):
     
     global should_play
@@ -122,6 +133,8 @@ def visual_task(thread_lock):
     global upcoming_bar_pos
     global upcoming_beat_pos
     global progress_ms
+
+    global blink_now
     
     # Start the visualization task (Don't worry about refreshes or anything)
     thread_lock.acquire()
@@ -160,14 +173,16 @@ def visual_task(thread_lock):
         
         # print(viz_beats)
         if viz_beats[upcoming_beat_pos]['start'] <= song_time and not viz_beat_played[beat_pos]:
-            print('BEAT', upcoming_beat_pos)
+            #print('BEAT', upcoming_beat_pos)
+            blink_now = True
+
             viz_beat_played[beat_pos] = True
             beat_pos += 1
             upcoming_beat_pos += 1
         thread_lock.release()
 
         # Have a small delay to not clog CPU
-        time.sleep(0.05)
+        time.sleep(0.01)
 
 def server_refresh(thread_lock):
     global bar_pos
@@ -215,6 +230,22 @@ def server_refresh(thread_lock):
 
         time.sleep(0.50) # Don't clog CPU
 
+def led_manage(thread_lock):
+    global should_play
+    global blink_now
+    global leds
+    
+    while should_play:
+
+        if blink_now:
+            leds.value = (0.5, 0.5, 0.5) 
+            time.sleep(0.15)
+            leds.value = (0, 0, 0)
+
+            thread_lock.acquire()
+            blink_now = False
+            thread_lock.release()
+        time.sleep(0.001)
 
 # In[5]:
 
@@ -223,11 +254,15 @@ lock = threading.Lock()
 
 viz_thread = threading.Thread(target=visual_task, args=(lock,))
 refresh_thread = threading.Thread(target=server_refresh, args=(lock,))
+blink_thread = threading.Thread(target=led_manage, args=(lock,))
 
 refresh_thread.start()
 viz_thread.start()
+blink_thread.start()
+
 viz_thread.join()
 refresh_thread.join()
+blink_thread.join()
 
 
 # In[51]:
