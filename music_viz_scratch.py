@@ -39,14 +39,14 @@ sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope))
 # * Make it so changing position in song makes correct change
 # * Fix bug if you spam changing song
 
-lag_offset = 0.20
+lag_offset = 0
 
 # GLOBAL VARS
 progress_ms = 0
 song_time = 0
 play_status = True
 time_since_refresh = 0
-refresh_rate = 2 # Expressed in seconds
+refresh_rate = 3 # Expressed in seconds
 start_system_time = time.time()
 viz_aa = {}
 viz_bars = []
@@ -185,7 +185,7 @@ def visual_task(thread_lock):
 
         thread_lock.acquire()
         # Trigger event if current song position is greater than upcoming bar beat
-        if viz_bars[upcoming_bar_pos]['start'] <= song_time and not viz_bar_played[bar_pos]:
+        if viz_bars[bar_pos]['start'] <= song_time and not viz_bar_played[bar_pos]:
             #print('BAR')
             viz_bar_played[bar_pos] = True
             bar_pos += 1
@@ -196,7 +196,7 @@ def visual_task(thread_lock):
         # print('song time:', song_time)
         
         # print(viz_beats)
-        if viz_beats[upcoming_beat_pos]['start'] <= song_time and not viz_beat_played[beat_pos]:
+        if viz_beats[beat_pos]['start'] <= song_time and not viz_beat_played[beat_pos]:
             #print('BEAT', upcoming_beat_pos)
             blink_now = True
 
@@ -267,33 +267,10 @@ def led_manage(thread_lock):
     while should_play:
         # Blink effect to beat
         if blink_now:
-            # leds.value = (1, 0.5, 0.5) 
-            # temp = color_1_vals.copy()
-            # if is_dimming:
-            #     temp[(color_pos+2)%3] += 0.5
-            #     leds.value = tuple(temp)
-            # else:
-            #     temp[(color_pos+1)%3] += 0.5
-            #     leds.value = tuple(temp)
-            # temp = color_1_vals.copy()
-            # if is_dimming:
-            #     temp[(color_pos+1)%3] = 0.5
-            # else:
-            #     temp[(color_pos+2)%3] = 0.5
-
-            # print('col:', color_1_vals)
-            # print('temp:', temp)
-
-            # leds.value = tuple(temp)
-            # leds_2.value = (0.30, 0.20, 0.92)
-            # leds_2.value = (0.09, 0, 0.76)
-            # time.sleep(0.05)
-            # leds.value = (0, 0, 0)
-            # leds_2.value = (0.20, 0.73, 0.92)
-            # leds_2.value = (0.30, 0.20, 0.92)
             # pulse_led_col(leds_2, (0.09, 0, 0.76), (0.20, 0.73, 0.92), 0.15) # Medium subtle
             # pulse_led_col(leds_2, (0.20, 0.73, 0.92), (0.40, 0.55, 0.92), 0.20) # Really subtle
             pulse_led_col(leds_2, (0.20, 0.73, 0.92), (0.86, 0.26, 0.96), 0.20) # Not subtle
+
             thread_lock.acquire()
             blink_now = False
             thread_lock.release()
