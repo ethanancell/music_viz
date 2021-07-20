@@ -13,6 +13,8 @@ import threading
 import time
 
 from gpiozero import LEDBoard
+from gpiozero import RGBLED
+from colorzero import Color
 
 
 # Load credentials from file on PC. If you are downloading this project from Github, then this specific file will not be there because it contains private access information.
@@ -36,6 +38,8 @@ sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope))
 # * Have error handling if a song analysis does not exist when grabbing from Spotify
 # * Make it so changing position in song makes correct change
 # * Fix bug if you spam changing song
+
+lag_offset = 0.20
 
 # GLOBAL VARS
 progress_ms = 0
@@ -62,11 +66,25 @@ blink_now = False
 # Variable that keeps track of all threads should be running
 should_play = True
 
-leds = LEDBoard(2, 3, 4)
-def blink_led(ledref):
-    ledref.value = (0.5, 0.5, 0.5)
-    time.sleep(0.15)
-    ledref.value = (0, 0, 0)
+leds = RGBLED(2, 4, 5)
+leds_2 = RGBLED(17, 27, 22)
+
+def pulse_led_col(led_ref, start_col, end_col, total_time):
+    dir1_0 = end_col[0] - start_col[0]
+    dir1_1 = end_col[1] - start_col[1]
+    dir1_2 = end_col[2] - start_col[2]
+
+    interval_change = 0.01 # How long to flip between colors (finer is smoother)
+    num_changes = int((total_time / 2) / interval_change)
+    
+    # Up
+    for i in range(0, num_changes):
+        led_ref.value = (start_col[0] + (i / num_changes) * dir1_0, start_col[1] + (i / num_changes) * dir1_1, start_col[2] + (i / num_changes) * dir1_2)
+        time.sleep(interval_change)
+    for i in range(0, num_changes):
+        led_ref.value = (end_col[0] - (i / num_changes) * dir1_0, end_col[1] - (i / num_changes) * dir1_1, end_col[2] - (i / num_changes) * dir1_2)
+        time.sleep(interval_change)
+
 
 # Change position in a song, start a new song, etc.
 def refresh_song(playback, is_new_song):
@@ -102,6 +120,9 @@ def refresh_song(playback, is_new_song):
     quick_refresh = sp.current_playback()
     progress_ms = quick_refresh['progress_ms']
     progress_s = progress_ms / 1000
+
+    # Optional lag offset
+    progress_s += lag_offset
 
     for bi, bar_search in enumerate(viz_bars):
         if bar_search['start'] <= progress_s and progress_s < viz_bars[bi+1]['start']:
@@ -154,6 +175,9 @@ def visual_task(thread_lock):
         # print('progress_s', progress_ms / 1000)
         thread_lock.release()
 
+        # Optional lag adjustment
+        song_time += lag_offset
+
         # Exit if timeout
         # if time.time() > timeout:
             # print('Timeout.')
@@ -182,7 +206,7 @@ def visual_task(thread_lock):
         thread_lock.release()
 
         # Have a small delay to not clog CPU
-        time.sleep(0.01)
+        time.sleep(0.001)
 
 def server_refresh(thread_lock):
     global bar_pos
@@ -230,23 +254,76 @@ def server_refresh(thread_lock):
 
         time.sleep(0.50) # Don't clog CPU
 
+color_1_vals = [1.0, 0.0, 0.0]
+color_2_vals = [0, 0, 0]
+is_dimming = False
+color_pos = 1
+
 def led_manage(thread_lock):
     global should_play
     global blink_now
-    global leds
+    global leds, color_1_vals, is_dimming, color_pos
     
     while should_play:
-
+        # Blink effect to beat
         if blink_now:
-            leds.value = (0.5, 0.5, 0.5) 
-            time.sleep(0.15)
-            leds.value = (0, 0, 0)
+            # leds.value = (1, 0.5, 0.5) 
+            # temp = color_1_vals.copy()
+            # if is_dimming:
+            #     temp[(color_pos+2)%3] += 0.5
+            #     leds.value = tuple(temp)
+            # else:
+            #     temp[(color_pos+1)%3] += 0.5
+            #     leds.value = tuple(temp)
+            # temp = color_1_vals.copy()
+            # if is_dimming:
+            #     temp[(color_pos+1)%3] = 0.5
+            # else:
+            #     temp[(color_pos+2)%3] = 0.5
 
+            # print('col:', color_1_vals)
+            # print('temp:', temp)
+
+            # leds.value = tuple(temp)
+            # leds_2.value = (0.30, 0.20, 0.92)
+            # leds_2.value = (0.09, 0, 0.76)
+            # time.sleep(0.05)
+            # leds.value = (0, 0, 0)
+            # leds_2.value = (0.20, 0.73, 0.92)
+            # leds_2.value = (0.30, 0.20, 0.92)
+            # pulse_led_col(leds_2, (0.09, 0, 0.76), (0.20, 0.73, 0.92), 0.15) # Medium subtle
+            # pulse_led_col(leds_2, (0.20, 0.73, 0.92), (0.40, 0.55, 0.92), 0.20) # Really subtle
+            pulse_led_col(leds_2, (0.20, 0.73, 0.92), (0.86, 0.26, 0.96), 0.20) # Not subtle
             thread_lock.acquire()
             blink_now = False
             thread_lock.release()
-        time.sleep(0.001)
+        time.sleep(0.01)
 
+        # Strobe effect 
+        if is_dimming:
+            if color_1_vals[color_pos] > 0:
+                color_1_vals[color_pos] -= 0.02
+                if color_1_vals[color_pos] <= 0:
+                    color_1_vals[color_pos] = 0
+            else:
+                color_1_vals[color_pos] = 0
+                is_dimming = False
+                color_pos += 2
+                color_pos %= 3
+        else:
+            if color_1_vals[color_pos] < 1.0:
+                color_1_vals[color_pos] += 0.02
+                if color_1_vals[color_pos] >= 1:
+                    color_1_vals[color_pos] = 1
+            else:
+                is_dimming = True
+                color_pos -= 1
+                color_pos %= 3
+
+        # Update
+        leds.value = tuple(color_1_vals)
+
+        
 # In[5]:
 
 
