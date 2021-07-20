@@ -4,9 +4,6 @@
 # In[1]:
 
 
-run_pi = False
-output_console = True
-
 import spotipy
 import spotipy.util as util
 from spotipy.oauth2 import SpotifyOAuth
@@ -15,10 +12,9 @@ from spotipy.oauth2 import SpotifyClientCredentials
 import threading
 import time
 
-if run_pi:
-    from gpiozero import LEDBoard
-    from gpiozero import RGBLED
-    from colorzero import Color
+from gpiozero import LEDBoard
+from gpiozero import RGBLED
+from colorzero import Color
 
 
 # Load credentials from file on PC. If you are downloading this project from Github, then this specific file will not be there because it contains private access information.
@@ -28,12 +24,6 @@ if run_pi:
 
 scope = ['user-library-read', 'user-read-currently-playing', 'user-read-playback-state']
 sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope))
-
-
-# In[3]:
-
-
-# test_analysis = sp.audio_analysis('https://open.spotify.com/track/6vSq5q5DCs1IvwKIq53hj2?si=94fe9e98a84a4ca8')
 
 
 # In[4]:
@@ -50,7 +40,6 @@ sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope))
 # * Fix bug if you spam changing song
 
 lag_offset = 0
-lag_offset_nudge = 0.20
 
 # GLOBAL VARS
 progress_ms = 0
@@ -77,18 +66,9 @@ blink_now = False
 # Variable that keeps track of all threads should be running
 should_play = True
 
-# Initialize pins
-if run_pi:
-    leds = RGBLED(2, 4, 5)
-    leds_2 = RGBLED(17, 27, 22)
-    color_1_vals = [1.0, 0.0, 0.0]
-    color_2_vals = [0, 0, 0]
-    is_dimming = False
-    color_pos = 1
+leds = RGBLED(2, 4, 5)
+leds_2 = RGBLED(17, 27, 22)
 
-    
-# Pulses an LED between two colors, we pulse this way to make it
-# not super jarring to the viewer if we suddenly flip colors.
 def pulse_led_col(led_ref, start_col, end_col, total_time):
     dir1_0 = end_col[0] - start_col[0]
     dir1_1 = end_col[1] - start_col[1]
@@ -129,8 +109,6 @@ def refresh_song(playback, is_new_song):
     if is_new_song:
         song_name = playback['item']['name']
         song_uri = playback['item']['uri']
-        if output_console:
-            print('Now playing \'', song_name, '\'', sep='')
         viz_aa = sp.audio_analysis(song_uri)
         viz_bars = viz_aa['bars']
         viz_beats = viz_aa['beats']
@@ -144,33 +122,22 @@ def refresh_song(playback, is_new_song):
     progress_s = progress_ms / 1000
 
     # Optional lag offset
-    progress_s += lag_offset + lag_offset_nudge
+    progress_s += lag_offset
 
     for bi, bar_search in enumerate(viz_bars):
-        if bi == 0:
-            if progress_s <= bar_search['start']:
-                bar_pos = 0
-                upcoming_bar_pos = 1
-                break
-        else:
-            if viz_bars[bi-1]['start'] <= progress_s and progress_s < bar_search['start']:
-                bar_pos = bi
-                upcoming_bar_pos = bi + 1
-                break
-
+        if bar_search['start'] <= progress_s and progress_s < viz_bars[bi+1]['start']:
+            bar_pos = bi
+            upcoming_bar_pos = bi + 1
+            # print('Found bar_pos', bar_pos)
+            break
     for bi, beat_search in enumerate(viz_beats):
-        if bi == 0:
-            if progress_s <= beat_search['start']:
-                beat_pos = 0
-                upcoming_beat_pos = 1
-        else:
-            if viz_beats[bi-1]['start'] <= progress_s and progress_s < beat_search['start']:
-                beat_pos = bi
-                upcoming_beat_pos = bi + 1
-                break
+        if beat_search['start'] <= progress_s and progress_s < viz_beats[bi+1]['start']:
+            beat_pos = bi
+            upcoming_beat_pos = bi + 1
+            # print('Found beat_pos', beat_pos)
+            break
 
 
-# Manage the timing of the song and making sure we trigger the right events when the beats are hit
 def visual_task(thread_lock):
     
     global should_play
@@ -187,10 +154,10 @@ def visual_task(thread_lock):
     global upcoming_bar_pos
     global upcoming_beat_pos
     global progress_ms
-    global song_time
+
     global blink_now
     
-    # Start the visualization task up: we start by refreshing
+    # Start the visualization task (Don't worry about refreshes or anything)
     thread_lock.acquire()
     viz_song = sp.current_playback()
     refresh_song(viz_song, True)
@@ -209,7 +176,7 @@ def visual_task(thread_lock):
         thread_lock.release()
 
         # Optional lag adjustment
-        song_time += lag_offset + lag_offset_nudge
+        song_time += lag_offset
 
         # Exit if timeout
         # if time.time() > timeout:
@@ -229,24 +196,18 @@ def visual_task(thread_lock):
         # print('song time:', song_time)
         
         # print(viz_beats)
-        if viz_beats[beat_pos]['start'] <= song_time and not viz_beat_played[beat_pos]: 
-            if run_pi:
-                blink_now = True
-            else:
-                print('BEAT', upcoming_beat_pos, 'T:', viz_beats[beat_pos]['start'], 'ST:', song_time, 'Diff:', song_time - viz_beats[beat_pos]['start'])
+        if viz_beats[beat_pos]['start'] <= song_time and not viz_beat_played[beat_pos]:
+            #print('BEAT', upcoming_beat_pos)
+            blink_now = True
 
             viz_beat_played[beat_pos] = True
             beat_pos += 1
             upcoming_beat_pos += 1
-            
         thread_lock.release()
 
         # Have a small delay to not clog CPU
-        time.sleep(0.005)
+        time.sleep(0.001)
 
-
-# Function to refresh with the Spotify server and check if a song has changed,
-# we are in a new place in the song, the song has paused, etc.
 def server_refresh(thread_lock):
     global bar_pos
     global beat_pos
@@ -274,7 +235,6 @@ def server_refresh(thread_lock):
         # Refresh progress every once in a while
         if time_since_refresh > refresh_rate:
             time_since_refresh -= refresh_rate
-            before_refresh_song_time = song_time
             refresh = sp.current_playback()
             
             if not (refresh['item'] is None):
@@ -282,21 +242,7 @@ def server_refresh(thread_lock):
                 if refresh['item']['uri'] != song_uri:
                     thread_lock.acquire()
                     refresh_song(refresh, True)
-                    thread_lock.release()
-                    
-                # Try adjusting lag amount?
-                refresh_diff = (refresh['progress_ms'] / 1000) - before_refresh_song_time
-                other_diff = (refresh['progress_ms'] / 1000) - song_time
-                #print('rf:', refresh_diff)
-                #print('o:', other_diff)
-                #lag_offset = other_diff
-                    
-                # print('refresh diff:', (refresh['progress_ms'] / 1000) - before_refresh_song_time)
-                if refresh['item']['uri'] == song_uri and abs(refresh_diff) > 0.50:
-                    # Check if in new part of the song
-                    thread_lock.acquire()
-                    print('Same song different time')
-                    refresh_song(refresh, False)
+                    print('Now playing \'', song_name, '\'', sep='')
                     thread_lock.release()
 
                 # Check if we should stop song if playback stops
@@ -308,8 +254,11 @@ def server_refresh(thread_lock):
 
         time.sleep(0.50) # Don't clog CPU
 
+color_1_vals = [1.0, 0.0, 0.0]
+color_2_vals = [0, 0, 0]
+is_dimming = False
+color_pos = 1
 
-# Handle the Raspberry Pi GPIO for the LEDs
 def led_manage(thread_lock):
     global should_play
     global blink_now
@@ -325,10 +274,9 @@ def led_manage(thread_lock):
             thread_lock.acquire()
             blink_now = False
             thread_lock.release()
-            
         time.sleep(0.01)
 
-        # Strobe effect on LED 1
+        # Strobe effect 
         if is_dimming:
             if color_1_vals[color_pos] > 0:
                 color_1_vals[color_pos] -= 0.02
@@ -352,7 +300,7 @@ def led_manage(thread_lock):
         # Update
         leds.value = tuple(color_1_vals)
 
-
+        
 # In[5]:
 
 
@@ -360,16 +308,20 @@ lock = threading.Lock()
 
 viz_thread = threading.Thread(target=visual_task, args=(lock,))
 refresh_thread = threading.Thread(target=server_refresh, args=(lock,))
-if run_pi:
-    blink_thread = threading.Thread(target=led_manage, args=(lock,))
+blink_thread = threading.Thread(target=led_manage, args=(lock,))
 
 refresh_thread.start()
 viz_thread.start()
-if run_pi:
-    blink_thread.start()
+blink_thread.start()
 
 viz_thread.join()
 refresh_thread.join()
-if run_pi:
-    blink_thread.join()
+blink_thread.join()
+
+
+# In[51]:
+
+
+# Percentage completion of song
+progress_ms / (viz_aa['track']['duration'] * 1000)
 
